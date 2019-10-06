@@ -1,0 +1,179 @@
+#CGAN
+
+gan_epochs = 3000
+mb_size = 2000
+Z_dim = 100
+X_dim = 400
+y_dim = 1
+h_dim = 128
+# Collect generated fraud data; Epoch as key, array as values
+gan_Default_X = {}
+
+# Measure Start Time
+start_time = time.time()
+# Collect list of generator/discriminator losses
+gan_Default_loss = []
+
+def xavier_init(size):
+    in_dim = size[0]
+    xavier_stddev = 1. / tf.sqrt(in_dim / 2.)
+    return tf.random_normal(shape=size, stddev=xavier_stddev)
+
+
+def steady_epoch(loss_lst, num_epochs_ran, sd_fluc_pct=0.15, scan_frame=225, stab_fn=min):   
+    """ 
+    FOR THE PURPOSE OF FINDING A FRAME OF EPOCHS WHERE THE LOSSES HAS STABILISED WITHIN SPECIFIED PERCENTAGE OF 
+    1SD OF LOSSES FOR ALL EPOCHS EXECUTED
+    
+    DEFAULT FRAME OF EPOCHS WHERE LOSS IS CONSIDERED STEADY IS 225, FLUCTUATING WITHIN +/- 15% OF 1 S.D. OF THE LOSSES
+    
+    [EXAMPLE - 5% OF S.D., 5% OF TOTAL EPOCHS RAN]
+    Obtain minimum of losses and its corresponding 1 s.d. of loss of the given array of losses
+    Do for a list of losses
+        For some 5% out of all epochs ran
+            if that particular 5% of epochs have losses each within +/-5% of the minimum loss,
+                Epoch frame chosen as steady epoch-period
+                Else return 'no steady epoch-periods found'; break
+        Return frame of epochs found 
+    """
+    # Obtain minimum and s.d. value of the losses for all epochs
+    loss_1sd = np.std(loss_lst)
+    stab_fn_loss = stab_fn(loss_lst)
+
+    epoch_frame_start = 0
+    epoch_frame_end = epoch_frame_start + scan_frame
+    
+    # Return nothing in the event no frame of losses are found to have steady losses
+    steady_frame=None
+    
+    # For loop termination
+    exit_loop = True
+    while exit_loop:
+
+        # Reset counter when one of the epoch is not within +/-'sd_fluc_pct'% of minimum losses
+        counter_5pct = 0
+
+        for epoch in range(epoch_frame_start, epoch_frame_end, 1):
+            if (loss_lst[epoch] > stab_fn_loss and loss_lst[epoch] <= (stab_fn_loss + sd_fluc_pct*loss_1sd))             or (loss_lst[epoch] < stab_fn_loss and loss_lst[epoch] >= (stab_fn_loss - sd_fluc_pct*loss_1sd)):
+                
+                # Increase counter progressively until all (225) epochs in 'scan_frame' are within specified tolerance
+                counter_5pct += 1
+
+                # When (225) epochs are within +/-'sd_fluc_pct'% of minimal loss, flag the (225th) final epoch
+                if counter_5pct == scan_frame:
+                    print('Steady epoch frame found at epoch {} as final'.format(epoch_frame_end))
+                    
+                    # Return numpy array of epoch numbers within (225) specified range
+                    steady_frame = np.linspace(start=(epoch_frame_end-scan_frame+1), stop=epoch_frame_end, num=scan_frame)
+                    exit_loop = False
+                    break           
+            else:
+                break
+
+        # When a frame of 225 epochs within +/-'sd_fluc_pct'% of minimum losses is not found,
+            # shift to next frame by 1 epoch
+        epoch_frame_start += 1
+        epoch_frame_end += 1
+
+        if epoch_frame_end > num_epochs_ran:
+            print('No steady epoch frame found!')
+            break
+
+    return steady_frame
+
+
+""" Discriminator Net model """
+X = tf.placeholder(tf.float32, shape=[None, X_dim])
+y = tf.placeholder(tf.float32, shape=[None, y_dim])
+
+D_W1 = tf.Variable(xavier_init([X_dim + y_dim, h_dim]))
+D_b1 = tf.Variable(tf.zeros(shape=[h_dim]))
+
+D_W2 = tf.Variable(xavier_init([h_dim, 1]))
+D_b2 = tf.Variable(tf.zeros(shape=[1]))
+
+theta_D = [D_W1, D_W2, D_b1, D_b2]
+
+def discriminator(x, y):
+    inputs = tf.concat(axis=1, values=[x, y])
+    D_h1 = tf.nn.relu(tf.matmul(inputs, D_W1) + D_b1)
+    D_logit = tf.matmul(D_h1, D_W2) + D_b2
+    D_prob = tf.nn.sigmoid(D_logit)
+
+    return D_prob, D_logit
+
+
+""" Generator Net model """
+Z = tf.placeholder(tf.float32, shape=[None, Z_dim])
+
+G_W1 = tf.Variable(xavier_init([Z_dim + y_dim, h_dim]))
+G_b1 = tf.Variable(tf.zeros(shape=[h_dim]))
+
+G_W2 = tf.Variable(xavier_init([h_dim, X_dim]))
+G_b2 = tf.Variable(tf.zeros(shape=[X_dim]))
+
+theta_G = [G_W1, G_W2, G_b1, G_b2]
+
+
+def generator(z, y):
+    inputs = tf.concat(axis=1, values=[z, y])
+    G_h1 = tf.nn.relu(tf.matmul(inputs, G_W1) + G_b1)
+    G_log_prob = tf.matmul(G_h1, G_W2) + G_b2
+    G_prob = tf.nn.sigmoid(G_log_prob)
+
+    # Generate fake x's with from output layer of generator
+    return G_prob
+
+
+def sample_Z(m, n):
+    return np.random.uniform(-1., 1., size=[m, n])
+
+
+
+G_sample = generator(Z, y)
+D_real, D_logit_real = discriminator(X, y)
+D_fake, D_logit_fake = discriminator(G_sample, y)
+
+D_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=D_logit_real, labels=tf.ones_like(D_logit_real)))
+D_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=D_logit_fake, labels=tf.zeros_like(D_logit_fake)))
+D_loss = D_loss_real + D_loss_fake
+G_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=D_logit_fake, labels=tf.ones_like(D_logit_fake)))
+
+D_solver = tf.train.AdamOptimizer().minimize(D_loss, var_list=theta_D)
+G_solver = tf.train.AdamOptimizer().minimize(G_loss, var_list=theta_G)
+
+
+sess = tf.Session()
+sess.run(tf.global_variables_initializer())
+
+
+
+if not os.path.exists('out/'):
+    os.makedirs('out/')
+
+i = 0
+
+for epoch in range(gan_epochs):
+    
+    Z_sample = sample_Z(mb_size, Z_dim)
+    Xtr, Ytr1 = next_batch(2000,FTrain_X1,FTrain_Y1)
+    Ytr = pd.DataFrame(Ytr1, columns=y_cols)
+    
+    _, D_loss_curr = sess.run([D_solver, D_loss], feed_dict={X: Xtr, Z: Z_sample, y:Ytr})
+    _, G_loss_curr = sess.run([G_solver, G_loss],feed_dict={Z: Z_sample, y:Ytr})
+
+    # Store losses per epoch
+    gan_Default_loss.append((D_loss_curr, G_loss_curr))
+                            
+    if (epoch+1) % 1000 == 0 or (epoch+1) == 1:
+                            
+        print('Iter: {}'.format(epoch+1))
+        print('Fraud generator loss: {} | discriminator loss: {}'.format(G_loss_curr, D_loss_curr), '\n')
+         
+    
+    gan_Default_X[epoch+1] =sess.run(G_sample, feed_dict={Z: Z_sample, y:Ytr})
+    
+    # Measure End Time
+elapsed_time = time.time() - start_time
+print('Time elapsed to train: ', elapsed_time)
+
