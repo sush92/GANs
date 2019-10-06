@@ -1,0 +1,109 @@
+gan_epochs = 3000
+mb_size = 2000
+Z_dim = 100
+X_dim = 400
+y_dim = 1
+
+# Collect generated fraud data; Epoch as key, array as values
+gan_Default_X = {}
+
+# Measure Start Time
+start_time = time.time()
+# Collect list of generator/discriminator losses
+gan_Default_loss = []
+
+
+# Discriminator Net
+X = tf.placeholder(tf.float32, shape=[None, X_dim], name='X')
+
+D_W1 = tf.Variable(xavier_init([X_dim, 128]), name='D_W1')
+D_b1 = tf.Variable(tf.zeros(shape=[128]), name='D_b1')
+
+D_W2 = tf.Variable(xavier_init([128, 1]), name='D_W2')
+D_b2 = tf.Variable(tf.zeros(shape=[1]), name='D_b2')
+
+theta_D = [D_W1, D_W2, D_b1, D_b2]
+
+# Generator Net
+Z = tf.placeholder(tf.float32, shape=[None, 100], name='Z')
+
+G_W1 = tf.Variable(xavier_init([100, 128]), name='G_W1')
+G_b1 = tf.Variable(tf.zeros(shape=[128]), name='G_b1')
+
+G_W2 = tf.Variable(xavier_init([128, X_dim]), name='G_W2')
+G_b2 = tf.Variable(tf.zeros(shape=[X_dim]), name='G_b2')
+
+theta_G = [G_W1, G_W2, G_b1, G_b2]
+
+
+def generator(z):
+    G_h1 = tf.nn.relu(tf.matmul(z, G_W1) + G_b1)
+    G_log_prob = tf.matmul(G_h1, G_W2) + G_b2
+    G_prob = tf.nn.sigmoid(G_log_prob)
+
+    return G_prob
+
+
+def discriminator(x):
+    D_h1 = tf.nn.relu(tf.matmul(x, D_W1) + D_b1)
+    D_logit = tf.matmul(D_h1, D_W2) + D_b2
+    D_prob = tf.nn.sigmoid(D_logit)
+
+    return D_prob, D_logit
+
+def sample_Z(m, n):
+    '''Uniform prior for G(Z)'''
+    return np.random.uniform(-1., 1., size=[m, n])
+
+
+G_sample = generator(Z)
+D_real, D_logit_real = discriminator(X)
+D_fake, D_logit_fake = discriminator(G_sample)
+
+D_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=D_logit_real, labels=tf.ones_like(D_logit_real)))
+D_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=D_logit_fake, labels=tf.zeros_like(D_logit_fake)))
+D_loss = D_loss_real + D_loss_fake
+G_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=D_logit_fake, labels=tf.ones_like(D_logit_fake)))
+
+#Then we train the networks one by one with those Adversarial Training, represented by those loss functions above.
+
+# Only update D(X)'s parameters, so var_list = theta_D
+D_solver = tf.train.AdamOptimizer(learning_rate=0.01).minimize(D_loss, var_list=theta_D)
+# Only update G(X)'s parameters, so var_list = theta_G
+G_solver = tf.train.AdamOptimizer(learning_rate=0.01).minimize(G_loss, var_list=theta_G)
+
+sess = tf.Session()
+sess.run(tf.global_variables_initializer())
+
+ 
+
+if not os.path.exists('out/'):
+    os.makedirs('out/')
+
+i = 0
+n_sample = 2000
+for epoch in range(gan_epochs):
+    
+    Z_sample = sample_Z(mb_size, Z_dim)
+    Xtr, Ytr1 = next_batch(2000,X_train,Y_train)
+    #print(Xtr.shape)
+    #Ytr = pd.DataFrame(Ytr1, columns=y_cols)
+    
+    _, D_loss_curr = sess.run([D_solver, D_loss], feed_dict={X: Xtr, Z: sample_Z(mb_size, Z_dim)})
+    _, G_loss_curr = sess.run([G_solver, G_loss], feed_dict={Z: sample_Z(mb_size, Z_dim)})
+    
+    gan_Default_loss.append((D_loss_curr, G_loss_curr))
+                            
+    if (epoch+1) % 1000 == 0 or (epoch+1) == 1:
+                            
+        print('Iter: {}'.format(epoch+1))
+        print('Fraud generator loss: {} | discriminator loss: {}'.format(G_loss_curr, D_loss_curr), '\n')
+         
+        
+    Z_sample_gen = sample_Z(n_sample, Z_dim)
+    gan_Default_X[epoch+1] =sess.run(G_sample, feed_dict={Z: Z_sample})
+    
+    # Measure End Time
+elapsed_time = time.time() - start_time
+print('Time elapsed to train: ', elapsed_time)
+
