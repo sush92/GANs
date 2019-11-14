@@ -1,0 +1,110 @@
+def uniform_draw_feat_class(data_df, target_name, draw_size):
+    """ Sample out 1 particular class out of the full data uniformly in a predefined sample size,
+    segregate pandas dataframe into their respective target classes. """
+    
+    # Break down full dataset into their respective classes
+    target_class_dfs = {}
+    n_classes = data_df[target_name].unique()
+    
+    for unique_class in n_classes:
+        # Store each segregated class dataframes as dictionary
+        class_i_df = data_df[data_df[target_name] == unique_class]
+        class_i_df = (class_i_df.reset_index()).drop(columns=['index'])
+        target_class_dfs[unique_class] = class_i_df
+        
+    # Obtain uniform samples of size 'draw_size' and store as dictionary
+    uniform_class_sample_draws = {}
+    
+    # Pandas df. sampling default None equivalently uniform draws
+    for unique_class in n_classes:
+        unif_samples = target_class_dfs[unique_class].sample(n=draw_size, replace=True)
+        sample_df = pd.DataFrame(unif_samples, columns=data_df.columns)    
+        uniform_class_sample_draws[unique_class] = unif_samples
+    
+    # Returns dictionary of pandas dataframes, split into respective classes
+    return uniform_class_sample_draws
+
+
+
+def steady_epoch(loss_lst, num_epochs_ran, sd_fluc_pct=0.15, scan_frame=225, stab_fn=min):   
+    """ 
+    FOR THE PURPOSE OF FINDING A FRAME OF EPOCHS WHERE THE LOSSES HAS STABILISED WITHIN SPECIFIED PERCENTAGE OF 
+    1SD OF LOSSES FOR ALL EPOCHS EXECUTED
+    
+    DEFAULT FRAME OF EPOCHS WHERE LOSS IS CONSIDERED STEADY IS 225, FLUCTUATING WITHIN +/- 15% OF 1 S.D. OF THE LOSSES
+    
+    [EXAMPLE - 5% OF S.D., 5% OF TOTAL EPOCHS RAN]
+    Obtain minimum of losses and its corresponding 1 s.d. of loss of the given array of losses
+    Do for a list of losses
+        For some 5% out of all epochs ran
+            if that particular 5% of epochs have losses each within +/-5% of the minimum loss,
+                Epoch frame chosen as steady epoch-period
+                Else return 'no steady epoch-periods found'; break
+        Return frame of epochs found 
+    """
+    # Obtain minimum and s.d. value of the losses for all epochs
+    loss_1sd = np.std(loss_lst)
+    stab_fn_loss = stab_fn(loss_lst)
+
+    epoch_frame_start = 0
+    epoch_frame_end = epoch_frame_start + scan_frame
+    
+    # Return nothing in the event no frame of losses are found to have steady losses
+    steady_frame=None
+    
+    # For loop termination
+    exit_loop = True
+    while exit_loop:
+
+        # Reset counter when one of the epoch is not within +/-'sd_fluc_pct'% of minimum losses
+        counter_5pct = 0
+
+        for epoch in range(epoch_frame_start, epoch_frame_end, 1):
+            if (loss_lst[epoch] > stab_fn_loss and loss_lst[epoch] <= (stab_fn_loss + sd_fluc_pct*loss_1sd))             or (loss_lst[epoch] < stab_fn_loss and loss_lst[epoch] >= (stab_fn_loss - sd_fluc_pct*loss_1sd)):
+                
+                # Increase counter progressively until all (225) epochs in 'scan_frame' are within specified tolerance
+                counter_5pct += 1
+
+                # When (225) epochs are within +/-'sd_fluc_pct'% of minimal loss, flag the (225th) final epoch
+                if counter_5pct == scan_frame:
+                    print('Steady epoch frame found at epoch {} as final'.format(epoch_frame_end))
+                    
+                    # Return numpy array of epoch numbers within (225) specified range
+                    steady_frame = np.linspace(start=(epoch_frame_end-scan_frame+1), stop=epoch_frame_end, num=scan_frame)
+                    exit_loop = False
+                    break           
+            else:
+                break
+
+        # When a frame of 225 epochs within +/-'sd_fluc_pct'% of minimum losses is not found,
+            # shift to next frame by 1 epoch
+        epoch_frame_start += 1
+        epoch_frame_end += 1
+
+        if epoch_frame_end > num_epochs_ran:
+            print('No steady epoch frame found!')
+            break
+
+    return steady_frame
+
+
+import numpy as np
+
+def next_batch(num, data, labels):
+    '''
+    Return a total of `num` random samples and labels. 
+    '''
+    idx = np.arange(0 , len(data))
+    np.random.shuffle(idx)
+    idx = idx[:num]
+    data_shuffle = [data.iloc[ i] for i in idx]
+    labels_shuffle = [labels.iloc[ i] for i in idx]
+
+    return np.asarray(data_shuffle), np.asarray(labels_shuffle)
+
+
+import os
+def xavier_init(size):
+    in_dim = size[0]
+    xavier_stddev = 1. / tf.sqrt(in_dim / 2.)
+    return tf.random_normal(shape=size, stddev=xavier_stddev)
