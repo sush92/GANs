@@ -56,7 +56,7 @@ FTrain_Y1 = subsetDataFrame_X['class']
 #CGAN
 
 gan_epochs = 2000
-mb_size = 4388
+mb_size = 5000
 Z_dim = 100
 X_dim = 400
 y_dim = 1
