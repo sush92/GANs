@@ -1,7 +1,62 @@
+from __future__ import division
+from __future__ import print_function
+from __future__ import absolute_import
+
+# Suppresses warnings
+# Warnings were noted prior to cleaning up the notebook, suppressing them are for aesthetics
+import warnings
+warnings.filterwarnings(action='ignore')
+
+import time
+import copy
+import random
+import tensorflow as tf
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import scipy.stats as stats
+from timeit import default_timer as timer
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import SGDClassifier, LogisticRegression
+from sklearn.metrics import confusion_matrix
+from imblearn.metrics import classification_report_imbalanced
+from imblearn import pipeline
+from imblearn.combine import SMOTETomek
+from imblearn.over_sampling import SMOTE, RandomOverSampler
+from imblearn.under_sampling import TomekLinks
+
+# Initialise seed value - 42
+seed = 42
+random.seed(42)
+tf.set_random_seed(seed)
+np.random.seed(seed)
+sns.set_style("whitegrid")
+
+get_ipython().run_line_magic('matplotlib', 'inline')
+get_ipython().run_line_magic('config', "InlineBackend.figure_format = 'retina'")
+
+
+
+#minority class data for training GANs[X_train,y_train]
+
+train_df = pd.concat([X_train,y_train], join='outer', axis='columns')
+subsetDataFrame_X = train_df[train_df['class'] == 1]
+print(subsetDataFrame_X.shape)
+
+
+FTrain_X1 = subsetDataFrame_X.drop(labels=['class'], axis='columns')
+FTrain_Y1 = subsetDataFrame_X['class']
+
+
+#CGAN 
+
 #CGAN
 
-gan_epochs = 3000
-mb_size = 2000
+gan_epochs = 2000
+mb_size = 4388
 Z_dim = 100
 X_dim = 400
 y_dim = 1
@@ -156,7 +211,7 @@ i = 0
 for epoch in range(gan_epochs):
     
     Z_sample = sample_Z(mb_size, Z_dim)
-    Xtr, Ytr1 = next_batch(2000,FTrain_X1,FTrain_Y1)
+    Xtr, Ytr1 = next_batch(4388,FTrain_X1,FTrain_Y1)
     Ytr = pd.DataFrame(Ytr1, columns=y_cols)
     
     _, D_loss_curr = sess.run([D_solver, D_loss], feed_dict={X: Xtr, Z: Z_sample, y:Ytr})
@@ -177,3 +232,105 @@ for epoch in range(gan_epochs):
 elapsed_time = time.time() - start_time
 print('Time elapsed to train: ', elapsed_time)
 
+
+
+### Saving data ###
+# Pickle, save generator/discrimnator losses
+pd.to_pickle(gan_Default_loss, 'GAN_Default_Loss.pkl')
+
+# Split file into 2 parts
+first_half = np.linspace(1, (gan_epochs/2), (gan_epochs/2)).tolist()
+secnd_half = np.linspace((gan_epochs/2)+1, gan_epochs, (gan_epochs/2)).tolist()
+
+gan_Default_X_pt1 = {epoch:gan_Default_X[epoch] for epoch in first_half}
+gan_Default_X_pt2 = {epoch:gan_Default_X[epoch] for epoch in secnd_half}
+pd.to_pickle(gan_Default_X_pt1, 'GAN_Default_X1.pkl')
+pd.to_pickle(gan_Default_X_pt2, 'GAN_Default_X2.pkl')
+
+
+### Reading saved data ###
+# Generated X
+gan_Default_X_pt1 = pd.read_pickle('GAN_Default_X1.pkl')
+gan_Default_X_pt2 = pd.read_pickle('GAN_Default_X2.pkl')
+
+# Rejoin files by updating mutable dictionaries before assignment
+# Direct assignment will fail - dict. method returns 'None'
+gan_Default_X_pt1.update(gan_Default_X_pt2)
+gan_Default_X = gan_Default_X_pt1
+    
+# GAN Losses
+gan_Default_loss = pd.read_pickle('GAN_Default_Loss.pkl')  
+
+
+
+#############
+
+
+# Plot loss results
+epoch_axis = np.linspace(1, gan_epochs, num=gan_epochs)
+
+# Extract generator and discriminator losses from 'gan_fraud' object
+gen_losses_Default = [gen[1] for gen in gan_Default_loss]
+disc_losses_Default = [disc[0] for disc in gan_Default_loss]
+
+# Plot discriminator/generator losses of fraud/fraudless beside each other
+_ = plt.figure(figsize=(16,7))
+
+_ = plt.subplot(1, 2, 2)
+_ = plt.plot(epoch_axis, gen_losses_Default, label='Generator')
+_ = plt.plot(epoch_axis, disc_losses_Default, label='Discriminator')
+_ = plt.xlabel('Epochs'); _ = plt.ylabel('Losses')
+_ = plt.legend(loc='best'); _ = plt.title('Classic Fraud Generator/Discriminator Losses Over Epochs')
+_ = plt.tight_layout(); plt.margins(0.02)
+
+plt.show()
+
+#######
+
+# Obtain steady epoch for the fraudulent GAN
+    # Stabilise within +/-5% of total epochs ran, all epochs within this frame must have losses fluctuating about 0.75 s.d.
+dloss_sdy_Default = steady_epoch(disc_losses_Default, num_epochs_ran=gan_epochs, sd_fluc_pct=0.75, 
+                               scan_frame=int(gan_epochs*0.005), stab_fn=np.median)
+gloss_sdy_Default = steady_epoch(gen_losses_Default, num_epochs_ran=gan_epochs, sd_fluc_pct=0.75, 
+                               scan_frame=int(gan_epochs*0.005), stab_fn=np.median)
+Default_sdy_epoch = int(max(max(dloss_sdy_Default), max(gloss_sdy_Default)))
+
+print('Default steady epoch: {}'.format(Default_sdy_epoch))
+
+
+
+#########
+wilcox_feat = X_cols
+train_df = pd.concat([X_train, y_train], join='outer', axis='columns')
+
+
+
+print('\n', '############################# STEADY EPOCH[minority class data] #############################################')
+Default_steady = pd.DataFrame(gan_Default_X[Default_sdy_epoch], columns=wilcox_feat)
+Default_steady['class'] = 1
+gan_data_steadyfirst = Default_steady
+X_Cgan_steadyfirst = gan_data_steadyfirst.drop(columns='class').as_matrix()
+y_Cgan_steadyfirst = gan_data_steadyfirst['class'].as_matrix()
+pd.to_pickle(X_Cgan_steadyfirst, 'X_Cgan_steadyfirst.pkl')
+pd.to_pickle(y_Cgan_steadyfirst, 'y_Cgan_steadyfirst.pkl')
+#Default_steady['class'] = 1
+X_Cgan_steadyfirst = pd.read_pickle('X_Cgan_steadyfirst.pkl')
+y_Cgan_steadyfirst = pd.read_pickle('y_Cgan_steadyfirst.pkl')
+print(X_Cgan_steadyfirst.shape)
+print(y_Cgan_steadyfirst.shape)
+
+print('\n', '############################# STEADY EPOCH[ All data] #############################################')
+X_train = pd.DataFrame(X_train, columns=X_cols)
+X_Cgan_steadyfirst = pd.DataFrame(X_Cgan_steadyfirst, columns=X_cols)
+y_train = pd.DataFrame(y_train, columns=y_cols)
+y_Cgan_steadyfirst = pd.DataFrame(y_Cgan_steadyfirst, columns=y_cols)
+X_Cgan_steady = pd.concat([X_train, X_Cgan_steadyfirst], axis='rows')
+y_Cgan_steady = pd.concat([y_train, y_Cgan_steadyfirst], axis='rows')
+
+pd.to_pickle(X_Cgan_steady, 'X_Cgan_steady.pkl')
+pd.to_pickle(y_Cgan_steady, 'y_Cgan_steady.pkl')
+
+X_Cgan_steady = pd.read_pickle('X_Cgan_steady.pkl')
+y_Cgan_steady = pd.read_pickle('y_Cgan_steady.pkl')
+print(X_Cgan_steady.shape)
+print(y_Cgan_steady.shape)
