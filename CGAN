@@ -40,7 +40,7 @@ get_ipython().run_line_magic('config', "InlineBackend.figure_format = 'retina'")
 
 
 
-#minority class data for training GANs[X_train,y_train]
+#Majority and Minority class data for training GANs[X_train,y_train]
 
 train_df = pd.concat([X_train,y_train], join='outer', axis='columns')
 subsetDataFrame_X = train_df[train_df['class'] == 1]
