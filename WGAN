@@ -158,36 +158,8 @@ elapsed_time = time.time() - start_time
 print('Time elapsed to train: ', elapsed_time)
   
 
-### Saving data ###
-# Pickle, save generator/discrimnator losses
-pd.to_pickle(gan_Default_loss, 'GAN_Default_Loss.pkl')
-
-# Split file into 2 parts
-first_half = np.linspace(1, (gan_epochs/2), (gan_epochs/2)).tolist()
-secnd_half = np.linspace((gan_epochs/2)+1, gan_epochs, (gan_epochs/2)).tolist()
-
-gan_Default_X_pt1 = {epoch:gan_Default_X[epoch] for epoch in first_half}
-gan_Default_X_pt2 = {epoch:gan_Default_X[epoch] for epoch in secnd_half}
-pd.to_pickle(gan_Default_X_pt1, 'GAN_Default_X1.pkl')
-pd.to_pickle(gan_Default_X_pt2, 'GAN_Default_X2.pkl')
 
 
-### Reading saved data ###
-# Generated X
-gan_Default_X_pt1 = pd.read_pickle('GAN_Default_X1.pkl')
-gan_Default_X_pt2 = pd.read_pickle('GAN_Default_X2.pkl')
-
-# Rejoin files by updating mutable dictionaries before assignment
-# Direct assignment will fail - dict. method returns 'None'
-gan_Default_X_pt1.update(gan_Default_X_pt2)
-gan_Default_X = gan_Default_X_pt1
-    
-# GAN Losses
-gan_Default_loss = pd.read_pickle('GAN_Default_Loss.pkl')  
-
-
-
-#############
 
 
 # Plot loss results
@@ -223,40 +195,9 @@ print('Default steady epoch: {}'.format(Default_sdy_epoch))
 
 
 
-#########
-wilcox_feat = X_cols
-train_df = pd.concat([X_train, y_train], join='outer', axis='columns')
 
 
 
 
-print('\n', '###########################STEADY EPOCH[ minority resampled data] #############################################')
-Default_steady = pd.DataFrame(gan_Default_X[Default_sdy_epoch], columns=wilcox_feat)
-Default_steady['class'] = 1
-gan_data_steadyfirst = Default_steady
-X_Wgan_steadyfirst = gan_data_steadyfirst.drop(columns='class').as_matrix()
-y_Wgan_steadyfirst = gan_data_steadyfirst['class'].as_matrix()
-pd.to_pickle(X_Wgan_steadyfirst, 'X_Wgan_steadyfirst.pkl')
-pd.to_pickle(y_Wgan_steadyfirst, 'y_Wgan_steadyfirst.pkl')
-#Default_steady['class'] = 1
-X_Wgan_steadyfirst = pd.read_pickle('X_Wgan_steadyfirst.pkl')
-y_Wgan_steadyfirst = pd.read_pickle('y_Wgan_steadyfirst.pkl')
-print(X_Wgan_steadyfirst.shape)
-print(y_Wgan_steadyfirst.shape)
 
-print('\n', '###########################STEADY EPOCH[All data] #############################################')
-X_train = pd.DataFrame(X_train, columns=X_cols)
-X_Wgan_steadyfirst = pd.DataFrame(X_Wgan_steadyfirst, columns=X_cols)
-y_train = pd.DataFrame(y_train, columns=y_cols)
-y_Wgan_steadyfirst = pd.DataFrame(y_Wgan_steadyfirst, columns=y_cols)
-X_Wgan_steady = pd.concat([X_train, X_Wgan_steadyfirst], axis='rows')
-y_Wgan_steady = pd.concat([y_train, y_Wgan_steadyfirst], axis='rows')
-
-pd.to_pickle(X_Wgan_steady, 'X_Wgan_steady.pkl')
-pd.to_pickle(y_Wgan_steady, 'y_Wgan_steady.pkl')
-
-X_Wgan_steady = pd.read_pickle('X_Wgan_steady.pkl')
-y_Wgan_steady = pd.read_pickle('y_Wgan_steady.pkl')
-print(X_Wgan_steady.shape)
-print(y_Wgan_steady.shape)
 
